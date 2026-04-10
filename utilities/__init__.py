@@ -4,9 +4,10 @@
 utilities - diagnostic and visualization tools for binary collision simulations.
 
 Includes:
+- simulate_relaxation: Numerical relaxation history without plotting.
 - run_relaxation_diagnostic: Flow & temperature relaxation diagnostic (Nanbu-style)
 """
 
-from .flow_temp_relaxation import run_relaxation_diagnostic
+from .flow_temp_relaxation import plot_relaxation_history, run_relaxation_diagnostic, simulate_relaxation
 
-__all__ = ["run_relaxation_diagnostic"]
+__all__ = ["plot_relaxation_history", "run_relaxation_diagnostic", "simulate_relaxation"]

@@ -9,11 +9,10 @@ from typing import Tuple
 import numpy as np
 import numpy.typing as npt
 import warnings
-import random
 from scipy.constants import epsilon_0, e, physical_constants
 from scipy.optimize import fsolve
 from scipy import interpolate
-from binary_collision.particle import Particle
+from binary_collision.particle import Particle, RNGLike, _coerce_rng
 
 warnings.simplefilter('error', RuntimeWarning)
 
@@ -34,8 +33,9 @@ class Collision:
     - Supports **precomputed function tables** (`func_A_Table`) to optimize performance.
     """
     func_A_Table = None # Cached function table for faster calculations
+    min_temperature_ev = 1.0e-12
 
-    def __init__(self, spa: Particle, spb: Particle, dtp: float):
+    def __init__(self, spa: Particle, spb: Particle, dtp: float, rng: RNGLike = None):
         """
         Initializes a collision system between two particle species.
 
@@ -48,6 +48,7 @@ class Collision:
 
         # Store the input order
         self._input_order = (spa, spb)
+        self.rng = _coerce_rng(rng)
 
         # Assign species based on the number of markers (larger Nmarker becomes 'spa')
         self.spa, self.spb = (spa, spb) if spa.Nmarker >= spb.Nmarker else (spb, spa)
@@ -94,7 +95,7 @@ class Collision:
         ]
 
         # Randomize execution order
-        random.shuffle(ops)
+        ops = [ops[idx] for idx in self._permutation(len(ops))]
 
         # Execute randomized operations
         for op in ops:
@@ -106,18 +107,21 @@ class Collision:
         :param spc: Particle species undergoing self-collisions.
         :return: None
         """
+        if spc.Nmarker < 4:
+            return
+
         # Shuffle velocities to ensure randomized selection
-        shuffled_vel, row_map = Collision.shuffle_rows_with_map(spc.vel)
+        shuffled_vel, row_map = Collision.shuffle_rows_with_map(spc.vel, rng=self.rng)
 
         # Split the particle group into two subgroups
         N_1, N_2 = spc.Nmarker // 2, spc.Nmarker - (spc.Nmarker // 2)
         spc_1 = Particle(name=f"{spc.name}_1", charge=spc.charge/e, mass=spc.mass/physical_constants['atomic mass constant'][0], density=spc.density, weight=spc.weight, Nmarker=N_1,
-                           vel=shuffled_vel[0:N_1])
+                           vel=shuffled_vel[0:N_1], rng=self.rng)
         spc_2 = Particle(name=f"{spc.name}_2", charge=spc.charge/e, mass=spc.mass/physical_constants['atomic mass constant'][0], density=spc.density, weight=spc.weight, Nmarker=N_2,
-                           vel=shuffled_vel[N_1:N_1 + N_2])
+                           vel=shuffled_vel[N_1:N_1 + N_2], rng=self.rng)
 
         # Create a new collision object for like-particle interaction
-        col_like = Collision(spc_1, spc_2, self.dtp)
+        col_like = Collision(spc_1, spc_2, self.dtp, rng=self.rng)
         col_like.get_vstar() # Perform velocity updates
 
         # Update the original velocity array
@@ -139,7 +143,7 @@ class Collision:
         w_max = np.max([self.spa.weight, self.spb.weight])
 
         # Shuffle velocity arrays
-        shuffled_vel, row_map = Collision.shuffle_rows_with_map(self.spa.vel)
+        shuffled_vel, row_map = Collision.shuffle_rows_with_map(self.spa.vel, rng=self.rng)
         self.spa.vel = shuffled_vel
         vstar_a = np.empty((0, 3))
 
@@ -157,9 +161,9 @@ class Collision:
             vp_a, vp_b = self.get_vPrime(idx_a = indices_a, idx_b = indices_b)
 
             # Update velocities based on statistical weights
-            vp_a_true = np.where( np.random.rand(indices_a.size,1) < self.spb.weight / w_max,
+            vp_a_true = np.where(self._random((indices_a.size, 1)) < self.spb.weight / w_max,
                                 vp_a, self.spa.vel[indices_a]) # true: prime, false: original
-            vp_b_true = np.where( np.random.rand(indices_a.size,1) < self.spa.weight / w_max,
+            vp_b_true = np.where(self._random((indices_a.size, 1)) < self.spa.weight / w_max,
                                 vp_b, self.spb.vel[indices_b])  # true: prime, false: original
 
             vstar_a = np.concatenate((vstar_a, vp_a_true), axis=0)
@@ -188,7 +192,7 @@ class Collision:
 
         mab: float = ma + mb # Total mass of the colliding pair
         g: npt.NDArray[float] = va - vb # Relative velocity
-        h: npt.NDArray[float] = self.get_h(g) # Generate random orthogonal vector to `g`
+        h: npt.NDArray[float] = self.get_h(g, rng=self.rng) # Generate random orthogonal vector to `g`
 
         # Compute cumulative scattering parameter s_ab and s_ba
         s_ab = self.evaluate_s_ab(g, self.dt_a, self.spb.density)
@@ -236,7 +240,7 @@ class Collision:
         """
         A_ab = np.clip(self.get_A(s_ab), 1e-12, 400.)
         A_ba = np.clip(self.get_A(s_ba), 1e-12, 400.)
-        rand_array = np.random.rand(*np.shape(A_ab))
+        rand_array = self._random(np.shape(A_ab))
 
         mask_small_ab = (s_ab < 1.e-4)
         mask_large_ab = (s_ab > 6.0)
@@ -263,8 +267,21 @@ class Collision:
         :return: `A` value computed using a precomputed function table.
         """
         s = np.asarray(s)
-        result = np.where(s < 0.01, 1. / s,
-                          np.where(s > 3., 3. * np.exp(-s), self.func_A_Table(s)))
+        result = np.empty_like(s, dtype=float)
+        small_mask = s < 0.01
+        large_mask = s > 3.0
+        mid_mask = ~(small_mask | large_mask)
+
+        if np.any(small_mask):
+            small_values = s[small_mask]
+            small_result = np.empty_like(small_values, dtype=float)
+            positive_small = small_values > 0.0
+            small_result[positive_small] = 1.0 / small_values[positive_small]
+            small_result[~positive_small] = np.inf
+            result[small_mask] = small_result
+        result[large_mask] = 3.0 * np.exp(-s[large_mask])
+        if np.any(mid_mask):
+            result[mid_mask] = self.func_A_Table(s[mid_mask])
         return result
 
     @classmethod
@@ -304,10 +321,15 @@ class Collision:
         :param density_b: Number density of species `b`.
         :return: `s_ab` values.
         """
-        return self.lnLambda_ab() \
-               * (self.spa.charge * self.spb.charge / (epsilon_0 * self.mu)) ** 2 \
-               * density_b * dt_a * 0.25 / np.pi \
-               * np.linalg.norm(g, axis=1) ** -3
+        g_norm = np.linalg.norm(g, axis=1)
+        s_ab = np.zeros_like(g_norm)
+        active = g_norm > 0.0
+        if np.any(active):
+            prefactor = self.lnLambda_ab() \
+                       * (self.spa.charge * self.spb.charge / (epsilon_0 * self.mu)) ** 2 \
+                       * density_b * dt_a * 0.25 / np.pi
+            s_ab[active] = prefactor * g_norm[active] ** -3
+        return s_ab
 
 
     def lnLambda_ab(self) -> float:
@@ -334,10 +356,12 @@ class Collision:
         This could be under the Particle class, but can be only relevant to collision operations for some applications.
         :return: Debye-Huckel equation ; Symmetry in species
         """
+        temp_a = self._effective_temperature(self.spa)
+        temp_b = self._effective_temperature(self.spb)
         return np.sqrt( epsilon_0 /
                         (
-                                self.spa.density * self.spa.charge**2 / (self.spa.temperature_actual * e)
-                                + self.spb.density * self.spb.charge**2 / (self.spb.temperature_actual * e)
+                                self.spa.density * self.spa.charge**2 / (temp_a * e)
+                                + self.spb.density * self.spb.charge**2 / (temp_b * e)
                           )
                         )
     def g2_ab(self) -> float:
@@ -347,16 +371,17 @@ class Collision:
 
         :return: Squared relative velocity (g²_ab) in units of m²/s² as a float64 ; Symmetry in species
         """
-        return 3. * e * ( self.spa.temperature_actual / self.spa.mass + self.spb.temperature_actual / self.spb.mass ) \
+        return 3. * e * ( self._effective_temperature(self.spa) / self.spa.mass + self._effective_temperature(self.spb) / self.spb.mass ) \
              + np.linalg.norm(self.spa.flow_actual - self.spb.flow_actual)**2
 
     @staticmethod
-    def get_h(g: npt.NDArray[float]) -> npt.NDArray[float]:
+    def get_h(g: npt.NDArray[float], rng: RNGLike = None) -> npt.NDArray[float]:
         """
-        Generates a random unit vector `h` that is orthogonal to the relative velocity `g`.
+        Generates a random vector `h` that is orthogonal to the relative velocity `g`.
 
         This method is used in the Nanbu (1997) binary collision model to define the scattering plane.
-        The resulting `h` vector lies in the plane perpendicular to `g`, with a uniformly random angle.
+        The resulting `h` vector lies in the plane perpendicular to `g`, with a uniformly random angle
+        and the same magnitude as `g`.
 
         :param g: Relative velocity vectors between particles, shape (N, 3)
                   Each row corresponds to a pairwise difference v_a - v_b.
@@ -370,33 +395,71 @@ class Collision:
         gz: npt.NDArray[float] = g[:, 2]
 
         # Compute g_perp = sqrt(gy² + gz²)
-        g_perp: npt.NDArray[float] = gy * gy + gz * gz  # Perpendicular squared component
-        g_abs: npt.NDArray[float] = np.sqrt(gx * gx + g_perp) # Magnitude of g
-        g_perp = np.sqrt(g_perp) # Magnitude of perpendicular component
+        g_perp_sq: npt.NDArray[float] = gy * gy + gz * gz  # Perpendicular squared component
+        g_abs: npt.NDArray[float] = np.sqrt(gx * gx + g_perp_sq) # Magnitude of g
+        g_perp = np.sqrt(g_perp_sq) # Magnitude of perpendicular component
 
         # Random azimuthal angle (ϵ) between 0 and 2π for isotropic scattering
-        ep: npt.NDArray[float] = np.random.rand(N) * np.pi * 2.
+        rng = _coerce_rng(rng)
+        if rng is None:
+            ep = np.random.rand(N) * np.pi * 2.
+        else:
+            ep = rng.random(N) * np.pi * 2.
         cos_ep: npt.NDArray[float] = np.cos(ep)
         sin_ep: npt.NDArray[float] = np.sin(ep)
 
         # Compute components of orthogonal vector h (see Nanbu 1997 derivation)
-        hx: npt.NDArray[float] = g_perp * cos_ep
-        gx_cosep: npt.NDArray[float] = gx * cos_ep
-        gabs_sinep: npt.NDArray[float] = g_abs * sin_ep
-        hy: npt.NDArray[float] = - (gy*gx_cosep + gz*gabs_sinep) / g_perp
-        hz: npt.NDArray[float] = (gy*gabs_sinep - gz*gx_cosep) / g_perp
+        hx = np.zeros(N)
+        hy = np.zeros(N)
+        hz = np.zeros(N)
+        general = g_perp > 0.0
+        axis_aligned = ~general & (g_abs > 0.0)
+
+        if np.any(general):
+            gx_cosep = gx[general] * cos_ep[general]
+            gabs_sinep = g_abs[general] * sin_ep[general]
+            hx[general] = g_perp[general] * cos_ep[general]
+            hy[general] = - (gy[general] * gx_cosep + gz[general] * gabs_sinep) / g_perp[general]
+            hz[general] = (gy[general] * gabs_sinep - gz[general] * gx_cosep) / g_perp[general]
+
+        if np.any(axis_aligned):
+            hy[axis_aligned] = g_abs[axis_aligned] * cos_ep[axis_aligned]
+            hz[axis_aligned] = g_abs[axis_aligned] * sin_ep[axis_aligned]
 
         # Return stacked orthogonal vectors
         return np.stack((hx, hy, hz), axis=1)
 
     @staticmethod
-    def shuffle_rows_with_map(array: np.ndarray) -> tuple[npt.NDArray, npt.NDArray]:
+    def shuffle_rows_with_map(array: np.ndarray, rng: RNGLike = None) -> tuple[npt.NDArray, npt.NDArray]:
         """
         Shuffles the rows of an array and returns the shuffled array with a mapping index.
 
         :param array: Input array.
         :return: (Shuffled array, row mapping)
         """
-        row_map = np.random.permutation(array.shape[0])
+        rng = _coerce_rng(rng)
+        if rng is None:
+            row_map = np.random.permutation(array.shape[0])
+        else:
+            row_map = rng.permutation(array.shape[0])
         shuffled_array = array[row_map,:]
         return shuffled_array, row_map
+
+    def _random(self, size) -> npt.NDArray[float]:
+        if self.rng is None:
+            return np.random.random(size)
+        return self.rng.random(size)
+
+    def _permutation(self, size: int) -> npt.NDArray[np.int64]:
+        if self.rng is None:
+            return np.random.permutation(size)
+        return self.rng.permutation(size)
+
+    @classmethod
+    def _effective_temperature(cls, species: Particle) -> float:
+        temperature = species.temperature_actual
+        if temperature is None or not np.isfinite(temperature) or temperature <= 0.0:
+            temperature = species.temperature_given
+        if temperature is None or not np.isfinite(temperature) or temperature <= 0.0:
+            temperature = cls.min_temperature_ev
+        return max(float(temperature), cls.min_temperature_ev)

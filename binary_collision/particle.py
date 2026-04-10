@@ -5,9 +5,20 @@
 #  BSD 3-Clause License as described in the LICENSE file located in the top-level directory.
 ##############################################################################
 
+from typing import Optional, Union
+
 import numpy as np
 import numpy.typing as npt
-from scipy.constants import epsilon_0, e, physical_constants
+from scipy.constants import e, physical_constants
+
+RNGLike = Optional[Union[int, np.random.Generator]]
+
+
+def _coerce_rng(rng: RNGLike) -> Optional[np.random.Generator]:
+    if rng is None or isinstance(rng, np.random.Generator):
+        return rng
+    return np.random.default_rng(rng)
+
 
 class Particle:
     """
@@ -22,7 +33,7 @@ class Particle:
     """
     def __init__(self, name: str, charge: int, mass: float, density: float,
                        flow: float = None, temperature: float = None, weight: float = 1.0, Nmarker: int = 1,
-                       vel: npt.NDArray[float] = None):
+                       vel: npt.NDArray[float] = None, rng: RNGLike = None):
         """
         Initializes the Particle object with fundamental physical properties.
 
@@ -47,6 +58,7 @@ class Particle:
         self.temperature_given: float = temperature  # Given temperature (eV)
         self.weight: float = weight # Weight factor
         self.Nmarker: int = Nmarker # Number of marker particles
+        self.rng = _coerce_rng(rng)
 
         # Velocity and computed properties
         self._vel = None # Private velocity attribute
@@ -110,4 +122,8 @@ class Particle:
         assert(self.Nmarker)
         # Generate random Maxwellian-distributed velocities
         T = self.temperature_given # Given temperature
-        self.vel = np.random.normal(flow_vec, np.sqrt(T * e / self.mass), (self.Nmarker, 3))
+        if self.rng is None:
+            vel = np.random.normal(flow_vec, np.sqrt(T * e / self.mass), (self.Nmarker, 3))
+        else:
+            vel = self.rng.normal(flow_vec, np.sqrt(T * e / self.mass), (self.Nmarker, 3))
+        self.vel = vel
