@@ -45,7 +45,7 @@ binary-coulomb-collision/
 ## Getting Started
 
 ### Installation
-To use this library, you will need **Python 3.13+** along with the following dependencies:
+To use this library, you will need **Python 3.10+** along with the following dependencies:
 
 - `numpy`
 - `scipy`  
@@ -57,6 +57,17 @@ git clone https://github.com/UNIST-FPL/binary-coulomb-collision.git
 cd binary-coulomb-collision
 pip install -e .
 ```
+
+For development and testing:
+
+```bash
+pip install -e ".[dev]"
+pytest -q -m "not verification"
+pytest -m verification -q
+python scripts/generate_baselines.py
+```
+
+See [TESTING.md](TESTING.md) for the baseline update policy and the intended test workflow.
 
 ---
 
@@ -138,6 +149,3 @@ This project is licensed under the **BSD 3-Clause License** – see the [LICENSE
 
 Issues, bug reports, and pull requests are welcome!  
 For questions or discussion, contact: **sungpil.yum [at] unist.ac.kr**
-
-
-

@@ -2,4 +2,4 @@
 __pycache__/
 *.pyc
 binary_collision.egg-info/
-tests/*
+tests/__pycache__/
