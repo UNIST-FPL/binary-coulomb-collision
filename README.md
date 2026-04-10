@@ -69,6 +69,7 @@ python scripts/diff_baselines.py tests/data /path/to/new/baselines
 ```
 
 See [TESTING.md](TESTING.md) for the baseline update policy and the intended test workflow.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the recommended branch and PR workflow.
 
 ---
 
