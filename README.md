@@ -65,6 +65,7 @@ pip install -e ".[dev]"
 pytest -q -m "not verification"
 pytest -m verification -q
 python scripts/generate_baselines.py
+python scripts/diff_baselines.py tests/data /path/to/new/baselines
 ```
 
 See [TESTING.md](TESTING.md) for the baseline update policy and the intended test workflow.

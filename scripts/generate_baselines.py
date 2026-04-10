@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from binary_collision import Collision, Particle  # noqa: E402
+from tests._relaxation_cases import reduced_relaxation_cases  # noqa: E402
 from utilities import simulate_relaxation  # noqa: E402
 
 
@@ -99,6 +100,24 @@ def generate_relaxation_baseline(output_dir: Path):
     )
 
 
+def generate_relaxation_figure_baselines(output_dir: Path):
+    for case in reduced_relaxation_cases():
+        history = simulate_relaxation(
+            case["particle_1"],
+            case["particle_2"],
+            iterations=case["iterations"],
+            dt=case["dt"],
+            rng=case["seed"],
+        )
+        np.savez(
+            output_dir / f"{case['name']}_v1.npz",
+            flow_magnitudes=history["flow_magnitudes"],
+            temperature_histories=history["temperature_histories"],
+            reference_flow=history["reference_flow"],
+            time_axis=history["time_axis"],
+        )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate deterministic regression baselines for tests.")
     parser.add_argument(
@@ -114,6 +133,7 @@ def main():
 
     generate_collision_baseline(output_dir)
     generate_relaxation_baseline(output_dir)
+    generate_relaxation_figure_baselines(output_dir)
     print(f"Baselines written to {output_dir}")
 
 
