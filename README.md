@@ -45,7 +45,7 @@ binary-coulomb-collision/
 ## Getting Started
 
 ### Installation
-To use this library, you will need **Python 3.13+** along with the following dependencies:
+To use this library, you will need **Python 3.10+** along with the following dependencies:
 
 - `numpy`
 - `scipy`  
@@ -57,6 +57,20 @@ git clone https://github.com/UNIST-FPL/binary-coulomb-collision.git
 cd binary-coulomb-collision
 pip install -e .
 ```
+
+For development and testing:
+
+```bash
+pip install -e ".[dev]"
+pytest -q -m "not verification"
+pytest -m verification -q
+python scripts/generate_baselines.py
+python scripts/diff_baselines.py tests/data /path/to/new/baselines
+python scripts/main_compatibility_report.py
+```
+
+See [TESTING.md](TESTING.md) for the baseline update policy and the intended test workflow.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the recommended branch and PR workflow.
 
 ---
 
@@ -88,6 +102,10 @@ This will apply both like-species (D–D, e–e) and unlike-species (D–e) coll
 > For fully working examples with realistic parameters and diagnostic output, see:
 > - [`examples/basic_run.py`](examples/basic_run.py)
 > - [`examples/nanbu_relaxation_demo.py`](examples/nanbu_relaxation_demo.py)
+>
+> The figure example and the verification tests both use the shared canonical case definitions in `utilities/nanbu_figure_cases.py`.
+> The default figure baselines are generated at the original `main` scale, not the reduced test scale.
+> The stored full-scale PNG snapshots rendered from those seeded baselines are kept for manual inspection; the automated regression check uses the seeded numerical histories.
 
 ---
 
@@ -138,6 +156,3 @@ This project is licensed under the **BSD 3-Clause License** – see the [LICENSE
 
 Issues, bug reports, and pull requests are welcome!  
 For questions or discussion, contact: **sungpil.yum [at] unist.ac.kr**
-
-
-

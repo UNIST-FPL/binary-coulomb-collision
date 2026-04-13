@@ -5,9 +5,20 @@
 #  BSD 3-Clause License as described in the LICENSE file located in the top-level directory.
 ##############################################################################
 
+from typing import Optional, Union
+
 import numpy as np
 import numpy.typing as npt
-from scipy.constants import epsilon_0, e, physical_constants
+from scipy.constants import e, physical_constants
+
+RNGLike = Optional[Union[int, np.random.Generator]]
+
+
+def _coerce_rng(rng: RNGLike) -> Optional[np.random.Generator]:
+    if rng is None or isinstance(rng, np.random.Generator):
+        return rng
+    return np.random.default_rng(rng)
+
 
 class Particle:
     """
@@ -22,7 +33,7 @@ class Particle:
     """
     def __init__(self, name: str, charge: int, mass: float, density: float,
                        flow: float = None, temperature: float = None, weight: float = 1.0, Nmarker: int = 1,
-                       vel: npt.NDArray[float] = None):
+                       vel: npt.NDArray[float] = None, rng: RNGLike = None):
         """
         Initializes the Particle object with fundamental physical properties.
 
@@ -47,6 +58,7 @@ class Particle:
         self.temperature_given: float = temperature  # Given temperature (eV)
         self.weight: float = weight # Weight factor
         self.Nmarker: int = Nmarker # Number of marker particles
+        self.rng = _coerce_rng(rng)
 
         # Velocity and computed properties
         self._vel = None # Private velocity attribute
@@ -74,17 +86,30 @@ class Particle:
         Setter for velocity (`vel`).
         - Automatically updates **actual flow** and **actual temperature** whenever velocity changes.
         """
-        self._vel = data # Assign new velocity
-        self.set_flow_actual() # Compute actual flow velocity
-        self.set_temperature_actual() # Compute actual temperature
+        self.assign_vel(data)
+
+    def assign_vel(self, data, refresh_stats: bool = True) -> None:
+        """
+        Assign velocity data and optionally refresh the derived moments.
+        """
+        self._vel = data
+        if refresh_stats:
+            self.update_moments()
+
+    def update_moments(self) -> None:
+        """
+        Refresh cached flow and temperature from the current velocity array.
+        """
+        self.set_flow_actual()
+        self.set_temperature_actual()
 
     def set_flow_actual(self) -> None:
         """
         Compute the actual flow velocity (`flow_actual`).
         - Takes the **mean velocity** of all particles as the flow velocity.
         """
-        assert self.vel is not None, "Velocity must be set before computing flow."
-        self.flow_actual = np.mean(self.vel, axis=0) # Compute mean velocity
+        assert self._vel is not None, "Velocity must be set before computing flow."
+        self.flow_actual = np.mean(self._vel, axis=0) # Compute mean velocity
         assert self.flow_actual.size == 3  # Ensure it has (vx, vy, vz) components
 
     def set_temperature_actual(self) -> None:
@@ -93,10 +118,10 @@ class Particle:
         - Assumes a Maxwellian distribution and calculates temperature based on the mean squared velocity.
         - Formula: T_actual = (m / (3 * e)) * (⟨v²⟩ - ⟨flow²⟩)
         """
-        assert self.vel is not None, "Velocity must be set before computing temperature."
+        assert self._vel is not None, "Velocity must be set before computing temperature."
         assert self.flow_actual is not None, "Flow must be computed before temperature."
         self.temperature_actual = (self.mass / (3. * e)
-                                * (np.sum(np.square(self.vel))/self.Nmarker - sum(np.square(self.flow_actual))))
+                                * (np.sum(np.square(self._vel))/self.Nmarker - sum(np.square(self.flow_actual))))
 
     def set_vel_isotropic(self) -> None:
         """
@@ -110,4 +135,8 @@ class Particle:
         assert(self.Nmarker)
         # Generate random Maxwellian-distributed velocities
         T = self.temperature_given # Given temperature
-        self.vel = np.random.normal(flow_vec, np.sqrt(T * e / self.mass), (self.Nmarker, 3))
+        if self.rng is None:
+            vel = np.random.normal(flow_vec, np.sqrt(T * e / self.mass), (self.Nmarker, 3))
+        else:
+            vel = self.rng.normal(flow_vec, np.sqrt(T * e / self.mass), (self.Nmarker, 3))
+        self.vel = vel
