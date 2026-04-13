@@ -4,3 +4,4 @@ __pycache__/
 binary_collision.egg-info/
 tests/__pycache__/
 artifacts/
+codex/
