@@ -20,6 +20,9 @@ def _coerce_rng(rng: RNGLike) -> Optional[np.random.Generator]:
     return np.random.default_rng(rng)
 
 
+WeightLike = Union[float, npt.NDArray[float]]
+
+
 class Particle:
     """
     Particle Class
@@ -32,7 +35,7 @@ class Particle:
     - Uses `@property` to update flow and temperature when velocity changes.
     """
     def __init__(self, name: str, charge: int, mass: float, density: float,
-                       flow: float = None, temperature: float = None, weight: float = 1.0, Nmarker: int = 1,
+                       flow: float = None, temperature: float = None, weight: WeightLike = 1.0, Nmarker: int = 1,
                        vel: npt.NDArray[float] = None, rng: RNGLike = None):
         """
         Initializes the Particle object with fundamental physical properties.
@@ -56,9 +59,11 @@ class Particle:
         self.density: float = density  # Particle density (particles per m³)
         self.flow_given: float = flow   # Given flow velocity (m/s)
         self.temperature_given: float = temperature  # Given temperature (eV)
-        self.weight: float = weight # Weight factor
         self.Nmarker: int = Nmarker # Number of marker particles
         self.rng = _coerce_rng(rng)
+        self._weight = None
+        self._weight_array = None
+        self.assign_weight(weight, refresh_stats=False)
 
         # Velocity and computed properties
         self._vel = None # Private velocity attribute
@@ -96,6 +101,49 @@ class Particle:
         if refresh_stats:
             self.update_moments()
 
+    def assign_weight(self, data: WeightLike, refresh_stats: bool = True) -> None:
+        """
+        Assign scalar or per-particle weights and optionally refresh the derived moments.
+        """
+        if np.isscalar(data):
+            weight = float(data)
+            self._weight = weight
+            self._weight_array = np.full(self.Nmarker, weight, dtype=float)
+        else:
+            weight_array = np.asarray(data, dtype=float)
+            if weight_array.shape != (self.Nmarker,):
+                raise ValueError(f"weight array must have shape ({self.Nmarker},)")
+            self._weight = weight_array.copy()
+            self._weight_array = weight_array.copy()
+        if refresh_stats and self._vel is not None:
+            self.update_moments()
+
+    @property
+    def weight(self) -> WeightLike:
+        return self._weight
+
+    @property
+    def weight_array(self) -> npt.NDArray[float]:
+        return self._weight_array
+
+    @property
+    def uses_particle_weights(self) -> bool:
+        return not np.isscalar(self._weight)
+
+    @property
+    def total_weight(self) -> float:
+        return float(np.sum(self._weight_array))
+
+    @property
+    def max_weight(self) -> float:
+        return float(np.max(self._weight_array))
+
+    @property
+    def collision_density(self) -> float:
+        if self.uses_particle_weights:
+            return self.total_weight
+        return self.density
+
     def update_moments(self) -> None:
         """
         Refresh cached flow and temperature from the current velocity array.
@@ -109,7 +157,12 @@ class Particle:
         - Takes the **mean velocity** of all particles as the flow velocity.
         """
         assert self._vel is not None, "Velocity must be set before computing flow."
-        self.flow_actual = np.mean(self._vel, axis=0) # Compute mean velocity
+        if not self.uses_particle_weights:
+            self.flow_actual = np.sum(self._vel, axis=0) / self.Nmarker
+            assert self.flow_actual.size == 3
+            return
+        total_weight = self.total_weight
+        self.flow_actual = np.sum(self._vel * self._weight_array[:, np.newaxis], axis=0) / total_weight
         assert self.flow_actual.size == 3  # Ensure it has (vx, vy, vz) components
 
     def set_temperature_actual(self) -> None:
@@ -120,8 +173,18 @@ class Particle:
         """
         assert self._vel is not None, "Velocity must be set before computing temperature."
         assert self.flow_actual is not None, "Flow must be computed before temperature."
+        if not self.uses_particle_weights:
+            self.temperature_actual = (
+                self.mass / (3.0 * e)
+                * (np.sum(np.square(self._vel)) / self.Nmarker - sum(np.square(self.flow_actual)))
+            )
+            return
+        total_weight = self.total_weight
         self.temperature_actual = (self.mass / (3. * e)
-                                * (np.sum(np.square(self._vel))/self.Nmarker - sum(np.square(self.flow_actual))))
+                                * (
+                                    np.sum(self._weight_array[:, np.newaxis] * np.square(self._vel)) / total_weight
+                                    - sum(np.square(self.flow_actual))
+                                ))
 
     def set_vel_isotropic(self) -> None:
         """

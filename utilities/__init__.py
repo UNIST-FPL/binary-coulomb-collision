@@ -9,6 +9,7 @@ from .flow_temp_relaxation import (
     run_relaxation_diagnostic,
     simulate_relaxation,
     simulate_relaxation_multispecies,
+    simulate_relaxation_multispecies_ensemble,
 )
 from .nanbu_figure_cases import (
     main_figure_case_bundles,
@@ -19,13 +20,25 @@ from .nanbu_figure_cases import (
 from .multispecies_cases import (
     canonical_three_species_case,
     canonical_three_species_weighted_case,
+    particle_weight_three_species_case,
+    particle_weight_three_species_equilibrium_case,
+    particle_weight_two_species_case,
+    thirteen_particle_weight_relaxation_case,
     three_species_long_time_equilibrium_case,
+    three_species_slower_relaxation_case,
+    three_species_smooth_relaxation_case,
 )
 
 __all__ = [
     "canonical_three_species_case",
     "canonical_three_species_weighted_case",
+    "particle_weight_three_species_case",
+    "particle_weight_three_species_equilibrium_case",
+    "particle_weight_two_species_case",
+    "thirteen_particle_weight_relaxation_case",
     "three_species_long_time_equilibrium_case",
+    "three_species_slower_relaxation_case",
+    "three_species_smooth_relaxation_case",
     "main_figure_case_bundles",
     "main_figure_cases",
     "plot_relaxation_history",
@@ -34,4 +47,5 @@ __all__ = [
     "run_relaxation_diagnostic",
     "simulate_relaxation",
     "simulate_relaxation_multispecies",
+    "simulate_relaxation_multispecies_ensemble",
 ]

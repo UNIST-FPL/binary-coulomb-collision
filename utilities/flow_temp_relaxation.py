@@ -101,6 +101,45 @@ def simulate_relaxation_multispecies(
     }
 
 
+def simulate_relaxation_multispecies_ensemble(
+    particle_dicts,
+    iterations=100,
+    dt=1e-7,
+    base_seed: int = 0,
+    ensemble_size: int = 8,
+) -> Dict[str, np.ndarray]:
+    """
+    Run the same multi-species relaxation case for multiple seeds and return
+    ensemble mean/std histories.
+    """
+    histories = [
+        simulate_relaxation_multispecies(
+            particle_dicts,
+            iterations=iterations,
+            dt=dt,
+            rng=base_seed + seed_offset,
+        )
+        for seed_offset in range(ensemble_size)
+    ]
+
+    flow_histories = np.stack([history["flow_histories"] for history in histories], axis=0)
+    flow_magnitudes = np.stack([history["flow_magnitudes"] for history in histories], axis=0)
+    temperature_histories = np.stack([history["temperature_histories"] for history in histories], axis=0)
+
+    return {
+        "species_names": histories[0]["species_names"],
+        "time_axis": histories[0]["time_axis"],
+        "reference_flow": histories[0]["reference_flow"],
+        "ensemble_size": ensemble_size,
+        "flow_histories_mean": np.mean(flow_histories, axis=0),
+        "flow_histories_std": np.std(flow_histories, axis=0),
+        "flow_magnitudes_mean": np.mean(flow_magnitudes, axis=0),
+        "flow_magnitudes_std": np.std(flow_magnitudes, axis=0),
+        "temperature_histories_mean": np.mean(temperature_histories, axis=0),
+        "temperature_histories_std": np.std(temperature_histories, axis=0),
+    }
+
+
 def plot_relaxation_history(history, hold=False, label_prefix=''):
     """
     Plots flow and temperature histories returned by `simulate_relaxation`.
