@@ -10,8 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from binary_collision import Collision, Particle  # noqa: E402
-from tests._relaxation_cases import reduced_relaxation_cases  # noqa: E402
-from utilities import simulate_relaxation  # noqa: E402
+from utilities import main_figure_case_bundles, reduced_main_figure_case_bundles, simulate_relaxation  # noqa: E402
 
 
 def generate_collision_baseline(output_dir: Path):
@@ -100,21 +99,33 @@ def generate_relaxation_baseline(output_dir: Path):
     )
 
 
-def generate_relaxation_figure_baselines(output_dir: Path):
-    for case in reduced_relaxation_cases():
-        history = simulate_relaxation(
-            case["particle_1"],
-            case["particle_2"],
-            iterations=case["iterations"],
-            dt=case["dt"],
-            rng=case["seed"],
-        )
+def generate_relaxation_figure_baselines(output_dir: Path, figure_scale: str):
+    bundle_factory = (
+        main_figure_case_bundles if figure_scale == "full" else reduced_main_figure_case_bundles
+    )
+    for bundle in bundle_factory():
+        histories = []
+        for case in bundle["cases"]:
+            histories.append(
+                simulate_relaxation(
+                    case["particle_1"],
+                    case["particle_2"],
+                    iterations=case["iterations"],
+                    dt=case["dt"],
+                    rng=case["seed"],
+                )
+            )
+
         np.savez(
-            output_dir / f"{case['name']}_v1.npz",
-            flow_magnitudes=history["flow_magnitudes"],
-            temperature_histories=history["temperature_histories"],
-            reference_flow=history["reference_flow"],
-            time_axis=history["time_axis"],
+            output_dir / f"{bundle['name']}_v1.npz",
+            case_names=np.array([case["name"] for case in bundle["cases"]], dtype=str),
+            variants=np.array([case["variant"] for case in bundle["cases"]], dtype=str),
+            label_prefixes=np.array([case["label_prefix"] for case in bundle["cases"]], dtype=str),
+            we_over_wd=np.array([case["we_over_wd"] for case in bundle["cases"]], dtype=float),
+            flow_magnitudes=np.stack([history["flow_magnitudes"] for history in histories]),
+            temperature_histories=np.stack([history["temperature_histories"] for history in histories]),
+            reference_flows=np.array([float(history["reference_flow"]) for history in histories], dtype=float),
+            time_axes=np.stack([history["time_axis"] for history in histories]),
         )
 
 
@@ -126,6 +137,12 @@ def main():
         type=Path,
         help="Directory to write .npz baseline files into.",
     )
+    parser.add_argument(
+        "--figure-scale",
+        choices=("full", "reduced"),
+        default="full",
+        help="Scale for Fig. 4-6 bundle baselines. Defaults to the original full-size cases from main.",
+    )
     args = parser.parse_args()
 
     output_dir = args.output_dir
@@ -133,7 +150,7 @@ def main():
 
     generate_collision_baseline(output_dir)
     generate_relaxation_baseline(output_dir)
-    generate_relaxation_figure_baselines(output_dir)
+    generate_relaxation_figure_baselines(output_dir, figure_scale=args.figure_scale)
     print(f"Baselines written to {output_dir}")
 
 

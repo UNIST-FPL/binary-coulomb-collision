@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 from numpy.testing import assert_allclose
 from scipy.constants import e, physical_constants
 
@@ -7,7 +6,6 @@ from tests._baseline import load_baseline
 from utilities import simulate_relaxation
 
 
-@pytest.mark.verification
 def test_reduced_relaxation_history_matches_baseline():
     d_params = {
         "name": "D+",

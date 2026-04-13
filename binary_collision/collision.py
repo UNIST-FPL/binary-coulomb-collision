@@ -49,6 +49,7 @@ class Collision:
         # Store the input order
         self._input_order = (spa, spb)
         self.rng = _coerce_rng(rng)
+        self._like_workspaces = {}
 
         # Assign species based on the number of markers (larger Nmarker becomes 'spa')
         self.spa, self.spb = (spa, spb) if spa.Nmarker >= spb.Nmarker else (spb, spa)
@@ -113,19 +114,14 @@ class Collision:
         # Shuffle velocities to ensure randomized selection
         shuffled_vel, row_map = Collision.shuffle_rows_with_map(spc.vel, rng=self.rng)
 
-        # Split the particle group into two subgroups
-        N_1, N_2 = spc.Nmarker // 2, spc.Nmarker - (spc.Nmarker // 2)
-        spc_1 = Particle(name=f"{spc.name}_1", charge=spc.charge/e, mass=spc.mass/physical_constants['atomic mass constant'][0], density=spc.density, weight=spc.weight, Nmarker=N_1,
-                           vel=shuffled_vel[0:N_1], rng=self.rng)
-        spc_2 = Particle(name=f"{spc.name}_2", charge=spc.charge/e, mass=spc.mass/physical_constants['atomic mass constant'][0], density=spc.density, weight=spc.weight, Nmarker=N_2,
-                           vel=shuffled_vel[N_1:N_1 + N_2], rng=self.rng)
-
-        # Create a new collision object for like-particle interaction
-        col_like = Collision(spc_1, spc_2, self.dtp, rng=self.rng)
+        N_1, N_2, spc_1, spc_2, col_like = self._get_like_workspace(spc, shuffled_vel)
         col_like.get_vstar() # Perform velocity updates
 
         # Update the original velocity array
-        spc.vel = np.concatenate((spc_1.vel, spc_2.vel), axis=0)[np.argsort(row_map)]
+        updated_shuffled = np.empty_like(shuffled_vel)
+        updated_shuffled[:N_1] = spc_1.vel
+        updated_shuffled[N_1:N_1 + N_2] = spc_2.vel
+        spc.vel = Collision.restore_rows_from_map(updated_shuffled, row_map)
 
 
     def unlike_collision_update(self) -> None:
@@ -141,11 +137,14 @@ class Collision:
         :return: None
         """
         w_max = np.max([self.spa.weight, self.spb.weight])
+        prob_a = self.spb.weight / w_max
+        prob_b = self.spa.weight / w_max
 
         # Shuffle velocity arrays
         shuffled_vel, row_map = Collision.shuffle_rows_with_map(self.spa.vel, rng=self.rng)
-        self.spa.vel = shuffled_vel
-        vstar_a = np.empty((0, 3))
+        self.spa.assign_vel(shuffled_vel, refresh_stats=True)
+        vstar_a = np.empty_like(shuffled_vel)
+        spb_vel = self.spb.vel
 
         # Iterate through all collision subcycling events
         for icycle in range(self.Nsubcycling):
@@ -154,25 +153,25 @@ class Collision:
             if start >= self.Nevent:
                 break
 
-            indices_a = np.arange(start, end)
-            indices_b = np.arange(indices_a.size)
+            count = end - start
+            indices_a = slice(start, end)
+            indices_b = slice(0, count)
 
             # Compute new velocities using `get_vPrime`
             vp_a, vp_b = self.get_vPrime(idx_a = indices_a, idx_b = indices_b)
+            current_a = self.spa.vel[indices_a]
+            current_b = spb_vel[indices_b]
 
             # Update velocities based on statistical weights
-            vp_a_true = np.where(self._random((indices_a.size, 1)) < self.spb.weight / w_max,
-                                vp_a, self.spa.vel[indices_a]) # true: prime, false: original
-            vp_b_true = np.where(self._random((indices_a.size, 1)) < self.spa.weight / w_max,
-                                vp_b, self.spb.vel[indices_b])  # true: prime, false: original
+            vp_a_true = np.where(self._random((count, 1)) < prob_a, vp_a, current_a) # true: prime, false: original
+            vp_b_true = np.where(self._random((count, 1)) < prob_b, vp_b, current_b)  # true: prime, false: original
 
-            vstar_a = np.concatenate((vstar_a, vp_a_true), axis=0)
-            self.spb.vel[indices_b] = vp_b_true
-            self.spb.vel = self.spb.vel
+            vstar_a[indices_a] = vp_a_true
+            spb_vel[indices_b] = vp_b_true
+            self.spb.update_moments()
 
         # Assign updated velocities
-        self.spa.vel = vstar_a[np.argsort(row_map)]
-        self.spb.vel = self.spb.vel
+        self.spa.vel = Collision.restore_rows_from_map(vstar_a, row_map)
 
     def get_vPrime(self, idx_a: np.ndarray = None, idx_b: np.ndarray = None) -> \
             Tuple[npt.NDArray[float], npt.NDArray[float]]:
@@ -191,6 +190,8 @@ class Collision:
         assert (va.shape[1] == 3)  # Ensure velocity components are (vx, vy, vz)
 
         mab: float = ma + mb # Total mass of the colliding pair
+        factor_a = mb / mab
+        factor_b = ma / mab
         g: npt.NDArray[float] = va - vb # Relative velocity
         h: npt.NDArray[float] = self.get_h(g, rng=self.rng) # Generate random orthogonal vector to `g`
 
@@ -204,13 +205,13 @@ class Collision:
         cosChi_ab, cosChi_ba = self.get_cosChi(s_ab, s_ba)
 
         try:
-            vPrime_a = va - mb / mab * (g * (1 - cosChi_ab) + h * np.sqrt((1 - cosChi_ab ** 2)))
+            vPrime_a = va - factor_a * (g * (1 - cosChi_ab) + h * np.sqrt((1 - cosChi_ab ** 2)))
         except RuntimeWarning:
             print("RuntimeWarning from cosChi_ab!")
             print("rand_array =", s_ab)
             raise
         try:
-            vPrime_b = vb + ma / mab * (g * (1 - cosChi_ba) + h * np.sqrt((1 - cosChi_ba ** 2)))
+            vPrime_b = vb + factor_b * (g * (1 - cosChi_ba) + h * np.sqrt((1 - cosChi_ba ** 2)))
         except RuntimeWarning:
             print("RuntimeWarning from cosChi_ba!")
             print("rand_array =", s_ba)
@@ -241,7 +242,6 @@ class Collision:
         A_ab = np.clip(self.get_A(s_ab), 1e-12, 400.)
         A_ba = np.clip(self.get_A(s_ba), 1e-12, 400.)
         rand_array = self._random(np.shape(A_ab))
-
         mask_small_ab = (s_ab < 1.e-4)
         mask_large_ab = (s_ab > 6.0)
 
@@ -444,6 +444,54 @@ class Collision:
             row_map = rng.permutation(array.shape[0])
         shuffled_array = array[row_map,:]
         return shuffled_array, row_map
+
+    @staticmethod
+    def restore_rows_from_map(array: np.ndarray, row_map: np.ndarray) -> npt.NDArray[float]:
+        """
+        Restore the original row order after `shuffle_rows_with_map`.
+        """
+        restored = np.empty_like(array)
+        restored[row_map] = array
+        return restored
+
+    def _get_like_workspace(
+        self,
+        spc: Particle,
+        shuffled_vel: np.ndarray,
+    ) -> tuple[int, int, Particle, Particle, "Collision"]:
+        key = id(spc)
+        N_1 = spc.Nmarker // 2
+        N_2 = spc.Nmarker - N_1
+        workspace = self._like_workspaces.get(key)
+        if workspace is None or workspace[0] != N_1 or workspace[1] != N_2:
+            spc_1 = Particle(
+                name=f"{spc.name}_1",
+                charge=spc.charge / e,
+                mass=spc.mass / physical_constants['atomic mass constant'][0],
+                density=spc.density,
+                weight=spc.weight,
+                Nmarker=N_1,
+                vel=shuffled_vel[0:N_1],
+                rng=self.rng,
+            )
+            spc_2 = Particle(
+                name=f"{spc.name}_2",
+                charge=spc.charge / e,
+                mass=spc.mass / physical_constants['atomic mass constant'][0],
+                density=spc.density,
+                weight=spc.weight,
+                Nmarker=N_2,
+                vel=shuffled_vel[N_1:N_1 + N_2],
+                rng=self.rng,
+            )
+            col_like = Collision(spc_1, spc_2, self.dtp, rng=self.rng)
+            workspace = (N_1, N_2, spc_1, spc_2, col_like)
+            self._like_workspaces[key] = workspace
+        else:
+            _, _, spc_1, spc_2, col_like = workspace
+            spc_1.assign_vel(shuffled_vel[0:N_1], refresh_stats=True)
+            spc_2.assign_vel(shuffled_vel[N_1:N_1 + N_2], refresh_stats=True)
+        return workspace
 
     def _random(self, size) -> npt.NDArray[float]:
         if self.rng is None:

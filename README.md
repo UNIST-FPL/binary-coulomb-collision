@@ -66,6 +66,7 @@ pytest -q -m "not verification"
 pytest -m verification -q
 python scripts/generate_baselines.py
 python scripts/diff_baselines.py tests/data /path/to/new/baselines
+python scripts/main_compatibility_report.py
 ```
 
 See [TESTING.md](TESTING.md) for the baseline update policy and the intended test workflow.
@@ -101,6 +102,10 @@ This will apply both like-species (D–D, e–e) and unlike-species (D–e) coll
 > For fully working examples with realistic parameters and diagnostic output, see:
 > - [`examples/basic_run.py`](examples/basic_run.py)
 > - [`examples/nanbu_relaxation_demo.py`](examples/nanbu_relaxation_demo.py)
+>
+> The figure example and the verification tests both use the shared canonical case definitions in `utilities/nanbu_figure_cases.py`.
+> The default figure baselines are generated at the original `main` scale, not the reduced test scale.
+> The stored full-scale PNG snapshots rendered from those seeded baselines are kept for manual inspection; the automated regression check uses the seeded numerical histories.
 
 ---
 

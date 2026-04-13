@@ -86,17 +86,30 @@ class Particle:
         Setter for velocity (`vel`).
         - Automatically updates **actual flow** and **actual temperature** whenever velocity changes.
         """
-        self._vel = data # Assign new velocity
-        self.set_flow_actual() # Compute actual flow velocity
-        self.set_temperature_actual() # Compute actual temperature
+        self.assign_vel(data)
+
+    def assign_vel(self, data, refresh_stats: bool = True) -> None:
+        """
+        Assign velocity data and optionally refresh the derived moments.
+        """
+        self._vel = data
+        if refresh_stats:
+            self.update_moments()
+
+    def update_moments(self) -> None:
+        """
+        Refresh cached flow and temperature from the current velocity array.
+        """
+        self.set_flow_actual()
+        self.set_temperature_actual()
 
     def set_flow_actual(self) -> None:
         """
         Compute the actual flow velocity (`flow_actual`).
         - Takes the **mean velocity** of all particles as the flow velocity.
         """
-        assert self.vel is not None, "Velocity must be set before computing flow."
-        self.flow_actual = np.mean(self.vel, axis=0) # Compute mean velocity
+        assert self._vel is not None, "Velocity must be set before computing flow."
+        self.flow_actual = np.mean(self._vel, axis=0) # Compute mean velocity
         assert self.flow_actual.size == 3  # Ensure it has (vx, vy, vz) components
 
     def set_temperature_actual(self) -> None:
@@ -105,10 +118,10 @@ class Particle:
         - Assumes a Maxwellian distribution and calculates temperature based on the mean squared velocity.
         - Formula: T_actual = (m / (3 * e)) * (⟨v²⟩ - ⟨flow²⟩)
         """
-        assert self.vel is not None, "Velocity must be set before computing temperature."
+        assert self._vel is not None, "Velocity must be set before computing temperature."
         assert self.flow_actual is not None, "Flow must be computed before temperature."
         self.temperature_actual = (self.mass / (3. * e)
-                                * (np.sum(np.square(self.vel))/self.Nmarker - sum(np.square(self.flow_actual))))
+                                * (np.sum(np.square(self._vel))/self.Nmarker - sum(np.square(self.flow_actual))))
 
     def set_vel_isotropic(self) -> None:
         """
