@@ -364,6 +364,55 @@ Examples include:
 - Per-particle weights are supported for both the two-species `Collision` path and the `MultiSpeciesCollision` path.
 - For very small marker counts, use ensemble averaging for visualization if you want smooth curves. The single realization is the exact Monte Carlo run; the ensemble average is just a cleaner diagnostic.
 
+## Verification Results
+
+The automated acceptance criterion in this repository is numerical history matching, not image matching. The figures below are included in the README because they make the verification targets easier to interpret.
+
+### 3-Species Smooth Relaxation
+
+This is a large-marker scalar-weight 3-species case intended to show that the `MultiSpeciesCollision` path gives the same kind of smooth relaxation behavior as the original 2-species demonstrations.
+
+![3-species smooth relaxation](readme/figures/three_species_smooth_relaxation.png)
+
+What this figure is meant to show:
+
+- all three species relax toward a common flow magnitude
+- all three species relax toward a common temperature
+- the 3+ species scheduler behaves smoothly when the marker count is high enough
+
+The corresponding case definition is `three_species_smooth_relaxation_case()` in `utilities/multispecies_cases.py`.
+
+### 3-Species Long-Time Equilibrium Check
+
+This figure comes from the long-time equilibration verification case. It is used to check that a 3-species closed system approaches the common equilibrium implied by conserved total momentum and total energy.
+
+![3-species long-time equilibrium](readme/figures/three_species_long_time_equilibrium.png)
+
+What this figure is meant to show:
+
+- species flows move toward the common equilibrium flow
+- species temperatures move toward the common equilibrium temperature
+- the multi-species implementation is not just numerically stable, but physically relaxing toward the expected shared state
+
+This behavior is covered by the verification test in `tests/test_multispecies_equilibrium.py`.
+
+### 13-Particle Per-Particle-Weight Relaxation
+
+This is the smallest intentionally nontrivial per-particle-weight case currently documented in the repository. Each of the three species has exactly 13 markers, and every marker has a different statistical weight.
+
+Because a single 13-marker Monte Carlo realization is noisy, the README figure uses the ensemble helper and plots the ensemble mean with spread bands.
+
+![13-particle per-particle-weight relaxation](readme/figures/thirteen_particle_weight_relaxation.png)
+
+What this figure is meant to show:
+
+- the per-particle-weight algorithm runs in the same `MultiSpeciesCollision` framework as the scalar-weight case
+- even with only 13 markers per species, the ensemble-averaged result shows a clear slow relaxation trend
+- the weighted multi-species path is suitable for verification, not just for one-off smoke tests
+
+The case definition is `thirteen_particle_weight_relaxation_case()` and the rendering script is `scripts/render_thirteen_particle_weight_case.py`.
+The automated verification for this path is in `tests/test_particle_weight_verification.py`.
+
 ---
 
 ## Verification Scripts
