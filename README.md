@@ -16,6 +16,7 @@ This library provides a simple Python implementation of the binary collision met
   - **Equal & unequal weights**
   - **Same-species and cross-species collisions**
   - **Velocity-dependent collision rates**
+- Includes a separate **`MultiSpeciesCollision`** orchestrator for **3+ species** without changing the original two-species `Collision` API
 - Includes **a sample script** reproducing key figures from Nanbu & Yonemura (1998)
 
 ---
@@ -65,6 +66,7 @@ pip install -e ".[dev]"
 pytest -q -m "not verification"
 pytest -m verification -q
 python scripts/generate_baselines.py
+python scripts/generate_multispecies_baselines.py
 python scripts/diff_baselines.py tests/data /path/to/new/baselines
 python scripts/main_compatibility_report.py
 ```
@@ -76,7 +78,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the recommended branch and PR workflo
 
 ## 🔧 Basic Usage
 
-This library provides two main interfaces:
+This library provides two main interfaces for the original two-species workflow:
 
 - `Particle`: defines a particle species (mass, charge, temperature, velocity, weight, etc.)
 - `Collision`: manages Coulomb binary collisions between two `Particle` objects using Nanbu's cumulative-angle method.
@@ -98,6 +100,25 @@ col.run()
 ```
 
 This will apply both like-species (D–D, e–e) and unlike-species (D–e) collisions for one time step.
+
+For **3+ species**, use `MultiSpeciesCollision` instead of changing the existing two-species call pattern:
+
+```python
+from binary_collision import Particle, MultiSpeciesCollision
+
+species = [Particle(...), Particle(...), Particle(...)]
+col = MultiSpeciesCollision(species, dtp=5e-9)
+col.run()
+```
+
+This applies the Nanbu multicomponent stage composition across all unlike and like species pairs for one time step while leaving the original `Collision` class unchanged.
+
+Current 3+ species scope:
+
+- keeps the original two-species `Collision` API unchanged
+- uses the tested pairwise `Collision` kernel as the building block
+- supports species-level scalar weights
+- includes deterministic 3-species regression baselines and a long-time equilibration verification case
 
 > For fully working examples with realistic parameters and diagnostic output, see:
 > - [`examples/basic_run.py`](examples/basic_run.py)

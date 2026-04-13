@@ -3,7 +3,7 @@ from typing import Dict
 import matplotlib.pyplot as plt
 import numpy as np
 
-from binary_collision import Collision, Particle
+from binary_collision import Collision, MultiSpeciesCollision, Particle
 from binary_collision.particle import RNGLike, _coerce_rng
 
 
@@ -53,6 +53,51 @@ def simulate_relaxation(particle_dict1, particle_dict2, iterations=100, dt=1e-7,
         "temperature_histories": np.stack((temp1_hist, temp2_hist)),
         "time_axis": time_axis,
         "reference_flow": np.array(ref_flow),
+    }
+
+
+def simulate_relaxation_multispecies(
+    particle_dicts,
+    iterations=100,
+    dt=1e-7,
+    rng: RNGLike = None,
+) -> Dict[str, np.ndarray]:
+    """
+    Run a deterministic-friendly relaxation simulation for 3+ species.
+    """
+    sim_rng = _coerce_rng(rng)
+    particle_kwargs_list = [dict(particle_dict) for particle_dict in particle_dicts]
+    for particle_kwargs in particle_kwargs_list:
+        particle_kwargs.setdefault("rng", sim_rng)
+
+    species = [Particle(**particle_kwargs) for particle_kwargs in particle_kwargs_list]
+    collision = MultiSpeciesCollision(species, dtp=dt, rng=sim_rng)
+
+    flow_histories = [[] for _ in species]
+    temperature_histories = [[] for _ in species]
+
+    for _ in range(iterations):
+        collision.run()
+        for species_idx, part in enumerate(species):
+            flow_histories[species_idx].append(part.flow_actual.copy())
+            temperature_histories[species_idx].append(part.temperature_actual)
+
+    flow_histories = np.array(flow_histories)
+    temperature_histories = np.array(temperature_histories)
+    flow_magnitudes = np.linalg.norm(flow_histories, axis=2)
+
+    electron_indices = [idx for idx, part in enumerate(species) if part.name == "e-"]
+    reference_index = electron_indices[0] if electron_indices else 0
+    reference_flow = np.array(flow_magnitudes[reference_index][0])
+    time_axis = np.arange(iterations) * dt * 1e5
+
+    return {
+        "species_names": np.array([part.name for part in species], dtype=object),
+        "flow_histories": flow_histories,
+        "flow_magnitudes": flow_magnitudes,
+        "temperature_histories": temperature_histories,
+        "time_axis": time_axis,
+        "reference_flow": reference_flow,
     }
 
 

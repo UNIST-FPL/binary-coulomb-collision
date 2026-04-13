@@ -49,3 +49,45 @@ def species_factory():
         return rng, ion, electron, collision
 
     return factory
+
+
+@pytest.fixture
+def multispecies_factory():
+    def factory(
+        seed=0,
+        markers=(18, 18, 18),
+        densities=(8.0e20, 8.0e20, 8.0e20),
+        flows=(2.0e5, -1.0e5, 6.0e4),
+        temperatures=(600.0, 120.0, 45.0),
+    ):
+        rng = np.random.default_rng(seed)
+        species_defs = (
+            ("e-", -1, physical_constants["electron mass in u"][0]),
+            ("D+", 1, 2.0141),
+            ("He+", 1, 4.0026),
+        )
+
+        species = []
+        for (name, charge, mass), marker_count, density, flow, temperature in zip(
+            species_defs,
+            markers,
+            densities,
+            flows,
+            temperatures,
+        ):
+            species.append(
+                Particle(
+                    name=name,
+                    charge=charge,
+                    mass=mass,
+                    density=density,
+                    flow=flow,
+                    temperature=temperature,
+                    weight=density / marker_count,
+                    Nmarker=marker_count,
+                    rng=rng,
+                )
+            )
+        return rng, species
+
+    return factory

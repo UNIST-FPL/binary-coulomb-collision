@@ -5,7 +5,7 @@
 #  BSD 3-Clause License as described in the LICENSE file located in the top-level directory.
 ##############################################################################
 
-from typing import Tuple
+from typing import Iterable, Tuple
 import numpy as np
 import numpy.typing as npt
 import warnings
@@ -15,6 +15,34 @@ from scipy import interpolate
 from binary_collision.particle import Particle, RNGLike, _coerce_rng
 
 warnings.simplefilter('error', RuntimeWarning)
+
+
+class _CombinedSpeciesView:
+    """
+    Dynamic view of a like-collision species split into two temporary work arrays.
+    """
+
+    def __init__(self, original: Particle, spc_1: Particle, spc_2: Particle):
+        self.name = original.name
+        self.charge = original.charge
+        self.mass = original.mass
+        self.density = original.density
+        self.weight = original.weight
+        self.Nmarker = original.Nmarker
+        self.temperature_given = original.temperature_given
+        self._spc_1 = spc_1
+        self._spc_2 = spc_2
+
+    @property
+    def flow_actual(self) -> npt.NDArray[float]:
+        vel_sum = self._spc_1.vel.sum(axis=0) + self._spc_2.vel.sum(axis=0)
+        return vel_sum / self.Nmarker
+
+    @property
+    def temperature_actual(self) -> float:
+        flow = self.flow_actual
+        vel_sq_sum = np.sum(self._spc_1.vel ** 2) + np.sum(self._spc_2.vel ** 2)
+        return (self.mass / (3.0 * e)) * (vel_sq_sum / self.Nmarker - np.sum(flow ** 2))
 
 class Collision:
     """
@@ -35,7 +63,14 @@ class Collision:
     func_A_Table = None # Cached function table for faster calculations
     min_temperature_ev = 1.0e-12
 
-    def __init__(self, spa: Particle, spb: Particle, dtp: float, rng: RNGLike = None):
+    def __init__(
+        self,
+        spa: Particle,
+        spb: Particle,
+        dtp: float,
+        rng: RNGLike = None,
+        plasma_species: Iterable[Particle] = None,
+    ):
         """
         Initializes a collision system between two particle species.
 
@@ -50,10 +85,12 @@ class Collision:
         self._input_order = (spa, spb)
         self.rng = _coerce_rng(rng)
         self._like_workspaces = {}
+        self._uses_external_plasma_context = plasma_species is not None
 
         # Assign species based on the number of markers (larger Nmarker becomes 'spa')
         self.spa, self.spb = (spa, spb) if spa.Nmarker >= spb.Nmarker else (spb, spa)
         self.spc = None  # Placeholder for like-particle processing (e.g., spc = self.spa)
+        self.plasma_species = tuple(plasma_species) if plasma_species is not None else (self.spa, self.spb)
 
         # Define time and mass parameters
         self.dtp = dtp  # System (or Physics) time ( = prime dt, i.e., \Delta t', in Nanbu98)
@@ -356,14 +393,11 @@ class Collision:
         This could be under the Particle class, but can be only relevant to collision operations for some applications.
         :return: Debye-Huckel equation ; Symmetry in species
         """
-        temp_a = self._effective_temperature(self.spa)
-        temp_b = self._effective_temperature(self.spb)
-        return np.sqrt( epsilon_0 /
-                        (
-                                self.spa.density * self.spa.charge**2 / (temp_a * e)
-                                + self.spb.density * self.spb.charge**2 / (temp_b * e)
-                          )
-                        )
+        denominator = 0.0
+        for species in self.plasma_species:
+            temperature = self._effective_temperature(species)
+            denominator += species.density * species.charge ** 2 / (temperature * e)
+        return np.sqrt(epsilon_0 / denominator)
     def g2_ab(self) -> float:
         """
         Computes the squared characteristic relative velocity g²_ab
@@ -484,7 +518,10 @@ class Collision:
                 vel=shuffled_vel[N_1:N_1 + N_2],
                 rng=self.rng,
             )
-            col_like = Collision(spc_1, spc_2, self.dtp, rng=self.rng)
+            plasma_species = None
+            if self._uses_external_plasma_context:
+                plasma_species = self._build_like_plasma_species(spc, spc_1, spc_2)
+            col_like = Collision(spc_1, spc_2, self.dtp, rng=self.rng, plasma_species=plasma_species)
             workspace = (N_1, N_2, spc_1, spc_2, col_like)
             self._like_workspaces[key] = workspace
         else:
@@ -492,6 +529,15 @@ class Collision:
             spc_1.assign_vel(shuffled_vel[0:N_1], refresh_stats=True)
             spc_2.assign_vel(shuffled_vel[N_1:N_1 + N_2], refresh_stats=True)
         return workspace
+
+    def _build_like_plasma_species(
+        self,
+        species: Particle,
+        spc_1: Particle,
+        spc_2: Particle,
+    ) -> tuple[Particle, ...]:
+        combined = _CombinedSpeciesView(species, spc_1, spc_2)
+        return tuple(combined if candidate is species else candidate for candidate in self.plasma_species)
 
     def _random(self, size) -> npt.NDArray[float]:
         if self.rng is None:
