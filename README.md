@@ -343,7 +343,6 @@ Examples include:
 - `canonical_three_species_case()`
 - `canonical_three_species_weighted_case()`
 - `three_species_long_time_equilibrium_case()`
-- `three_species_smooth_relaxation_case()`
 - `three_species_slower_relaxation_case()`
 - `particle_weight_two_species_case()`
 - `particle_weight_three_species_case()`
@@ -368,19 +367,19 @@ Examples include:
 
 The automated acceptance criterion in this repository is numerical history matching, not image matching. The figures below are included in the README because they make the verification targets easier to interpret.
 
-### 3-Species Smooth Relaxation
+### 3-Species Slow Relaxation
 
-This is a large-marker scalar-weight 3-species case intended to show that the `MultiSpeciesCollision` path gives the same kind of smooth relaxation behavior as the original 2-species demonstrations.
+This is the 3-species example that should be used as the representative README case. It was chosen specifically so that relaxation is gradual enough to read directly from the plot, instead of collapsing too quickly into the final state.
 
-![3-species smooth relaxation](readme/figures/three_species_smooth_relaxation.png)
+![3-species slow relaxation](readme/figures/three_species_slower_relaxation.png)
 
 What this figure is meant to show:
 
 - all three species relax toward a common flow magnitude
 - all three species relax toward a common temperature
-- the 3+ species scheduler behaves smoothly when the marker count is high enough
+- the approach to equilibrium is slow enough that the transient relaxation is clearly visible
 
-The corresponding case definition is `three_species_smooth_relaxation_case()` in `utilities/multispecies_cases.py`.
+The corresponding case definition is `three_species_slower_relaxation_case()` in `utilities/multispecies_cases.py`.
 
 ### 3-Species Long-Time Equilibrium Check
 
