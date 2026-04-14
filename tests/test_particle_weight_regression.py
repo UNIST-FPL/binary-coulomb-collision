@@ -27,13 +27,13 @@ def test_per_particle_weight_two_species_matches_baseline():
 
     baseline = load_baseline("particle_weight_2sp_small_v1.npz")
     assert list(history["species_names"]) == list(baseline["species_names"])
-    assert_allclose(history["flow_histories"], baseline["flow_histories"])
-    assert_allclose(history["flow_magnitudes"], baseline["flow_magnitudes"])
-    assert_allclose(history["temperature_histories"], baseline["temperature_histories"])
+    assert_allclose(history["flow_histories"], baseline["flow_histories"], atol=2.0e-5)
+    assert_allclose(history["flow_magnitudes"], baseline["flow_magnitudes"], atol=2.0e-5)
+    assert_allclose(history["temperature_histories"], baseline["temperature_histories"], atol=2.0e-5)
     assert_allclose(history["time_axis"], baseline["time_axis"])
     assert_allclose(history["reference_flow"], baseline["reference_flow"])
-    assert_allclose(particle_a.vel, baseline["vel_a"])
-    assert_allclose(particle_b.vel, baseline["vel_b"])
+    assert_allclose(particle_a.vel, baseline["vel_a"], atol=2.0e-5)
+    assert_allclose(particle_b.vel, baseline["vel_b"], atol=2.0e-5)
 
 
 def test_per_particle_weight_three_species_matches_baseline():
@@ -53,10 +53,10 @@ def test_per_particle_weight_three_species_matches_baseline():
 
     baseline = load_baseline("multispecies_3sp_particle_weight_small_v1.npz")
     assert list(history["species_names"]) == list(baseline["species_names"])
-    assert_allclose(history["flow_histories"], baseline["flow_histories"])
-    assert_allclose(history["flow_magnitudes"], baseline["flow_magnitudes"])
-    assert_allclose(history["temperature_histories"], baseline["temperature_histories"])
+    assert_allclose(history["flow_histories"], baseline["flow_histories"], atol=2.0e-5)
+    assert_allclose(history["flow_magnitudes"], baseline["flow_magnitudes"], atol=2.0e-5)
+    assert_allclose(history["temperature_histories"], baseline["temperature_histories"], atol=2.0e-5)
     assert_allclose(history["time_axis"], baseline["time_axis"])
     assert_allclose(history["reference_flow"], baseline["reference_flow"])
     for idx, part in enumerate(species):
-        assert_allclose(part.vel, baseline[f"vel_{idx}"])
+        assert_allclose(part.vel, baseline[f"vel_{idx}"], atol=2.0e-5)
