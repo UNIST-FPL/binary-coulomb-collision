@@ -6,6 +6,21 @@ This repository uses three layers of tests:
 - Regression tests: deterministic one-step collision outputs compared against stored baselines.
 - Verification tests: full-scale physical relaxation histories for the canonical Fig. 4-6 cases, plus slow multi-species equilibration sanity checks.
 
+## CI Layers
+
+- Merge-time hosted CI: `.github/workflows/tests.yml`
+- Nightly/manual verification monitoring: `.github/workflows/full-verification-monitoring.yml`
+
+The merge-time hosted CI keeps only the verification checks that have proven stable
+on GitHub-hosted runners.
+The nightly/manual monitoring workflow still runs the full verification suite and
+always uploads a drift report plus the raw `pytest` log so the hosted-runner
+behavior can be inspected later.
+
+At the moment, the full Fig. 6 replay cases remain monitoring-only on hosted
+runners because their pointwise numerical histories have shown runner-dependent
+drift that is not reproducible enough for a strict merge gate.
+
 ## Running Tests
 
 Install the development dependencies:
@@ -24,6 +39,12 @@ Run the full-scale verification suite:
 
 ```bash
 pytest -q -m verification
+```
+
+Generate a drift report for the canonical verification cases:
+
+```bash
+python scripts/verification_drift_report.py
 ```
 
 Run everything:

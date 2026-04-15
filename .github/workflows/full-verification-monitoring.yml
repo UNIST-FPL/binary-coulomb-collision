@@ -1,0 +1,58 @@
+name: Full Verification Monitoring
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-verification-monitoring:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run hosted-stable verification checks
+        run: |
+          pytest -q tests/test_multispecies_equilibrium.py
+          pytest -q tests/test_particle_weight_verification.py
+          pytest -q tests/test_relaxation_figures_verification.py -k "bundle_metadata_matches_manifest"
+      - name: Run full verification suite for monitoring
+        id: full_verification
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/full-verification
+          pytest -q -m verification | tee artifacts/full-verification/pytest-verification.log
+      - name: Generate verification drift report
+        if: always()
+        run: |
+          python scripts/verification_drift_report.py \
+            --output-json artifacts/full-verification/drift-report.json \
+            --output-md artifacts/full-verification/drift-report.md
+          cat artifacts/full-verification/drift-report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Summarize hosted full-suite outcome
+        if: always()
+        run: |
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Hosted full verification outcome: \`${{ steps.full_verification.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.full_verification.outcome }}" = "failure" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "The hosted runner full suite is monitoring-only and may fail on the full Fig. 6 replay cases." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload monitoring artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-verification-monitoring-${{ github.run_id }}
+          path: artifacts/full-verification
