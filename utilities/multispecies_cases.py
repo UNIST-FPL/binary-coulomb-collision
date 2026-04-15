@@ -129,7 +129,7 @@ def three_species_long_time_equilibrium_case():
     ]
     return {
         "species": deepcopy(species),
-        "iterations": 600,
+        "iterations": 700,
         "dt": 3.0e-8,
         "seed": 123,
     }
