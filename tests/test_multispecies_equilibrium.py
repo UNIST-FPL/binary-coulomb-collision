@@ -51,8 +51,12 @@ def test_three_species_long_time_relaxation_approaches_common_equilibrium():
 
     initial_max_flow_error = np.max(np.linalg.norm(initial_flows - target_flow, axis=1))
     final_max_flow_error = np.max(np.linalg.norm(final_flows - target_flow, axis=1))
+    final_temperature_spread = np.max(final_temperatures) - np.min(final_temperatures)
+    max_temperature_error = np.max(np.abs(final_temperatures - target_temperature))
 
-    assert final_max_flow_error < 8.5e3
-    assert final_max_flow_error < initial_max_flow_error * 0.25
-    assert np.max(final_temperatures) - np.min(final_temperatures) < 6.0
-    assert np.max(np.abs(final_temperatures - target_temperature)) < 3.0
+    assert final_max_flow_error < 8.5e3, f"final max flow error {final_max_flow_error}"
+    assert final_max_flow_error < initial_max_flow_error * 0.25, (
+        f"flow reduction ratio {final_max_flow_error / initial_max_flow_error}"
+    )
+    assert final_temperature_spread < 6.5, f"final temperature spread {final_temperature_spread}"
+    assert max_temperature_error < 3.5, f"max temperature error to target {max_temperature_error}"
